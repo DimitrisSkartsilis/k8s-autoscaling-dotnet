@@ -1,41 +1,32 @@
-var builder = WebApplication.CreateBuilder(args);
+using System.Collections.Concurrent;
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
+var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
 
-app.UseHttpsRedirection();
+// In-memory store for now; replaced by a real database later.
+var documents = new ConcurrentDictionary<Guid, Document>();
 
-var summaries = new[]
+app.MapPost("/documents", (CreateDocumentRequest request) =>
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+    if (string.IsNullOrWhiteSpace(request.Title) || string.IsNullOrWhiteSpace(request.Content))
+        return Results.BadRequest("Title and content are required.");
 
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
+    var document = new Document(Guid.NewGuid(), request.Title, request.Content);
+    documents[document.Id] = document;
+    return Results.Created($"/documents/{document.Id}", document);
+});
+
+app.MapGet("/documents/{id:guid}", (Guid id) =>
+    documents.TryGetValue(id, out var document) ? Results.Ok(document) : Results.NotFound());
 
 app.Run();
 
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
+record CreateDocumentRequest(string Title, string Content);
+record Document(Guid Id, string Title, string Content);
