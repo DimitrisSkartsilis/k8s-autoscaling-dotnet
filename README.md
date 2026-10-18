@@ -65,7 +65,7 @@ The HorizontalPodAutoscaler needs CPU metrics. Install metrics-server, then appl
 
 ```sh
 kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
-kubectl patch deployment metrics-server -n kube-system --type=json --patch-file k8s/metrics-server-patch.json
+kubectl patch deployment metrics-server -n kube-system --type=json --patch-file k8s/local/metrics-server-patch.json
 ```
 
 Check that it works with `kubectl top pods` (it can take a minute to start reporting).
@@ -93,8 +93,37 @@ kubectl get hpa flagship-api --watch
 In another, generate load against the `/work` endpoint from inside the cluster:
 
 ```sh
-kubectl run load --rm -it --image=busybox:1.36 --restart=Never -- \
-  /bin/sh -c "while true; do wget -q -O- http://flagship-api:8080/work > /dev/null; done"
+kubectl run load-generator --image=busybox:1.36 --restart=Never -- /bin/sh -c "for i in 1 2 3 4; do (while true; do wget -q -O /dev/null http://flagship-api:8080/work; done) & done; wait"
 ```
 
-Replicas should climb as CPU usage passes the 50% target. Stop the load generator with `Ctrl+C`, and the deployment scales back down after about a minute of low load.
+This starts four concurrent request loops in one pod. Replicas should climb as CPU usage passes the 50% target. Stop the load generator with `kubectl delete pod load-generator`, and the deployment scales back down after about a minute of low load.
+
+## Results
+
+Condensed from one run of `kubectl get hpa -w` (raw output: [docs/hpa-run.txt](docs/hpa-run.txt); pod events: [docs/pods-run.txt](docs/pods-run.txt)):
+
+| TARGETS | REPLICAS | What happened |
+|---------|----------|---------------|
+| `1%–3%/50%` | 1 | Idle baseline before load. |
+| `501%/50%` | 1 | Load generator started; the single pod is pinned at its 500m CPU limit. |
+| `306%/50%` | 5 | First scale-up, 1→5 (capped at +4 pods per step); new pods are still warming up. |
+| `232%/50%` | 6 | Reached `maxReplicas`; still well above target, but can't scale further. |
+| `1%/50%` | 6 | Load generator deleted; CPU drops, but replicas are held during the scale-down stabilization window. |
+| `1%/50%` | 1 | Scaled back down to `minReplicas`. |
+
+## Observations
+
+- **Utilization is relative to the CPU request, not the limit.** The request is 100m, so the 50% target means 50m per pod. Because the limit is 500m, a pod can report up to ~500% utilization.
+- **The single pod was throttled at its limit.** 501% is 501m, i.e. the 500m limit. The pod couldn't use more CPU, so the reading shows the cap, not the real demand.
+- **The first scale-up went 1→5, not straight to 6.** By default the HPA adds at most 4 pods (or doubles the count, whichever is larger) per 15-second step. The pod events show four new pods created together, then one more.
+- **`maxReplicas` acts as a cost ceiling.** At 6 replicas utilization was still 232%, well above target, so the HPA wanted more pods but stopped at the maximum.
+- **Total CPU in use grew from ~500m to ~1.4 cores.** One throttled pod at 501% is ~0.5 cores; six pods averaging 232% of 100m is ~1.4 cores.
+- **Scale-down waited for the stabilization window.** After the load stopped, utilization dropped to 1% while the deployment stayed at 6 replicas, then it went to 1 once the 60-second window had passed.
+- **The document store isn't safe to scale; `/work` is.** Documents live in memory in each pod, so a document created through one pod returns `404` when a later request is routed to another pod (seen in a found/404 check). `/work` keeps no state, so any pod can serve any request.
+
+## Cleanup
+
+```sh
+kubectl delete -f k8s/
+kubectl delete pod load-generator --ignore-not-found
+```

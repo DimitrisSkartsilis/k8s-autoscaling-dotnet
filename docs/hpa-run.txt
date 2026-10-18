@@ -1,0 +1,10 @@
+PS C:\Users\dimit\flagship> kubectl get hpa -w
+NAME           REFERENCE                 TARGETS       MINPODS   MAXPODS   REPLICAS   AGE
+flagship-api   Deployment/flagship-api   cpu: 1%/50%   1         6         1          90m
+flagship-api   Deployment/flagship-api   cpu: 3%/50%   1         6         1          91m
+flagship-api   Deployment/flagship-api   cpu: 1%/50%   1         6         1          92m
+flagship-api   Deployment/flagship-api   cpu: 501%/50%   1         6         1          93m
+flagship-api   Deployment/flagship-api   cpu: 306%/50%   1         6         5          94m
+flagship-api   Deployment/flagship-api   cpu: 232%/50%   1         6         6          95m
+flagship-api   Deployment/flagship-api   cpu: 1%/50%     1         6         6          97m
+flagship-api   Deployment/flagship-api   cpu: 1%/50%     1         6         1          98m
