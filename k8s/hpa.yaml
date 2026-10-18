@@ -1,0 +1,21 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: flagship-api
+spec:
+  scaleTargetRef:              # what to scale
+    apiVersion: apps/v1
+    kind: Deployment
+    name: flagship-api
+  minReplicas: 1               # never fewer than 1 pod
+  maxReplicas: 6               # never more than 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50   # aim for 50% of the CPU request, averaged across pods
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 60   # wait 60s of low load before removing pods (default is 300)
