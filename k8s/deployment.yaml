@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: api
-          image: flagship-api:0.1
+          image: flagship-api:0.2
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
